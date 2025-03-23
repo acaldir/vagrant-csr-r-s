@@ -1,0 +1,4 @@
+Device     Interface  Remote Device   Remote Interface
+r1         g0/1       r2              g0/1
+csr3       g2         r2              g0/2
+r2         g0/3       csr3            g3
