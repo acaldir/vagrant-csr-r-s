@@ -92,8 +92,10 @@ def generate_router_config(device: str, port_info: list, mac_address: str, manag
         box_type = "cisco-csr1000v"  # CSR cihazları için box
     elif device.startswith('r'):
         box_type = "cisco-iosv"  # Router cihazları için box
-    else:
+    elif device.startswith('s'):
         box_type = "cisco-iosvl2"  # Switch cihazları için box
+    else:
+        raise ValueError(f"Unknown device type: {device}")
 
     output.append(f'  node.vm.box = "{box_type}"')
     output.append(f'  node.vm.provider :libvirt do |domain|')
@@ -191,6 +193,11 @@ def generate_ip_pairs(router_connections):
              ((device1.startswith("r") or device1.startswith("csr")) and device2.startswith("s")):
             switch, router = (device1, device2) if device1.startswith("s") else (device2, device1)
             switch_interface, router_interface = (interface1, interface2) if device1.startswith("s") else (interface2, interface1)
+
+            if device1.startswith("s"):
+                switch, switch_interface, router, router_interface = device1, interface1, device2, interface2
+            else:
+                switch, switch_interface, router, router_interface = device2, interface2, device1, interface1
             
             # Create a subnet for each switch
             if switch not in switch_router_map:
@@ -313,7 +320,7 @@ def create_inventory(devices: list, mac_ip_data_inv: dict):
         # Default values
         inventory_data[device] = {
             'hostname': management_ip_inv,
-            'groups': ['router'] if device.startswith('r') else ['switch']
+            'groups': ['csr'] if device.startswith('csr') else ['router'] if device.startswith('r') else ['switch']
         }
 
     # Define YAML file path
@@ -366,6 +373,11 @@ switch:
     type: iosvl2
     version: 15.2
     lldp: true
+csr:
+  data:
+    type: csr1000v
+    version: 16.12
+    lldp: true
 """
     with open(groups_file_path, 'w') as groups_file:
         groups_file.write(groups_content)  # Dosyayı doğrudan yaz
@@ -402,9 +414,33 @@ interfaces:
       mask: 255.255.255.0
 """
             # Dosyayı oluştur
-            host_file_path = os.path.join(host_vars_dir, f"{device}.yaml")
-            with open(host_file_path, 'w') as host_file:
-                host_file.write(host_vars_content)  # Dosyayı yaz
+           
+
+        elif device.startswith('csr'):
+            # CSR cihazları için Loopback0 IP adresini ayarla
+            id_num = device[3:]  # 'csr3' için '3', 'csr4' için '4' vb.
+            loopback0_addr = f"1.1.{id_num}.1"  # CSR cihazları için Loopback0 IP adresi
+            loopback1_addr = f"11.11.{id_num}.1"  # Loopback1 IP adresi
+            loopback10_addr = f"172.16.{id_num}.1"  # Loopback10 IP adresi
+
+            host_vars_content = f"""\
+---
+# {device} Loopback configuration
+interfaces:
+  Loopback0:
+    ipv4:
+      addr: {loopback0_addr}
+      mask: 255.255.255.255
+  Loopback1:
+    ipv4:
+      addr: {loopback1_addr}
+      mask: 255.255.255.0
+  Loopback10:
+    ipv4:
+      addr: {loopback10_addr}
+      mask: 255.255.255.0
+"""
+
         else:
             # Switch için sadece Loopback0 tanımını oluştur
             id_num = device[1:]  # 's1' için '1', 's2' için '2' vb.
@@ -421,9 +457,9 @@ interfaces:
       mask: 255.255.255.255
 """
             # Dosyayı oluştur
-            host_file_path = os.path.join(host_vars_dir, f"{device}.yaml")
-            with open(host_file_path, 'w') as host_file:
-                host_file.write(host_vars_content)  # Dosyayı yaz
+        host_file_path = os.path.join(host_vars_dir, f"{device}.yaml")
+        with open(host_file_path, 'w') as host_file:
+            host_file.write(host_vars_content)  # Dosyayı yaz
 
     print(f"Inventory created at {yaml_file_path}")
     print(f"Defaults created at {defaults_file_path}")
